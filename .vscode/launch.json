@@ -1,0 +1,91 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Current File (timesfm env)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "python": "/home/yzh/miniconda3/envs/timesfm/bin/python",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "justMyCode": true
+    },
+    {
+      "name": "Financial: Backtest Data Dir",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/zlab/financial_forecasting/scripts/forecast_ohlcva_csv.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "python": "/home/yzh/miniconda3/envs/timesfm/bin/python",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "args": [
+        "${workspaceFolder}/zlab/financial_forecasting/data",
+        "--mode",
+        "backtest",
+        "--target",
+        "log_close_return",
+        "--horizon",
+        "5",
+        "--context-length",
+        "128",
+        "--skip-check",
+        "--output",
+        "${workspaceFolder}/zlab/financial_forecasting/output/debug_backtest.csv",
+        "--metrics-output",
+        "${workspaceFolder}/zlab/financial_forecasting/output/debug_backtest.metrics.json"
+      ],
+      "justMyCode": true
+    },
+    {
+      "name": "Financial: Single Symbol Forecast",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/zlab/financial_forecasting/scripts/forecast_ohlcva_csv.py",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "python": "/home/yzh/miniconda3/envs/timesfm/bin/python",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "args": [
+        "${workspaceFolder}/zlab/financial_forecasting/data/600519.SH_qfq_day.csv",
+        "--mode",
+        "forecast",
+        "--target",
+        "close",
+        "--horizon",
+        "5",
+        "--context-length",
+        "256",
+        "--skip-check",
+        "--output",
+        "${workspaceFolder}/zlab/financial_forecasting/output/debug_600519_forecast.csv"
+      ],
+      "justMyCode": true
+    },
+    {
+      "name": "Financial: Pytest",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "python": "/home/yzh/miniconda3/envs/timesfm/bin/python",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "args": [
+        "zlab/financial_forecasting/tests/test_financial_forecasting.py",
+        "-q"
+      ],
+      "justMyCode": true
+    }
+  ]
+}
