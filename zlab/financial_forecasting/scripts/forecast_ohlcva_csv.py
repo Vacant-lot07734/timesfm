@@ -4,7 +4,7 @@
 TimesFM 2.5 is still a univariate model. This script applies the recommended
 zero-shot workflow for financial data:
 
-1. Map each symbol's OHLCVA bars to a single target such as close or returns.
+1. Map each symbol's OHLCVA bars to close prices.
 2. Optionally add future-known calendar covariates through XReg.
 3. Run either the latest-window forecast or rolling walk-forward backtests.
 4. Write flattened forecasts plus evaluation metrics.
@@ -57,7 +57,6 @@ def load_model(
   batch_size: int,
   context_length: int,
   horizon: int,
-  target: str,
   use_xreg: bool,
 ):
   """Loads and compiles the TimesFM 2.5 model."""
@@ -84,7 +83,7 @@ def load_model(
       per_core_batch_size=batch_size,
       use_continuous_quantile_head=use_continuous_quantile_head,
       force_flip_invariance=True,
-      infer_is_positive=target_is_nonnegative(target),
+      infer_is_positive=target_is_nonnegative("close"),
       fix_quantile_crossing=True,
       return_backcast=use_xreg,
     )
@@ -145,22 +144,6 @@ def parse_args() -> argparse.Namespace:
     choices=["forecast", "backtest"],
     default="backtest",
     help="Use the latest context window or rolling walk-forward backtests.",
-  )
-  parser.add_argument(
-    "--target",
-    choices=[
-      "close",
-      "log_close",
-      "close_return",
-      "log_close_return",
-      "hlc3",
-      "ohlc4",
-      "volume",
-      "log_volume",
-      "vwap",
-    ],
-    default="log_close_return",
-    help="Single target derived from OHLCVA bars.",
   )
   parser.add_argument("--horizon", type=int, required=True, help="Forecast horizon.")
   parser.add_argument(
@@ -271,12 +254,6 @@ def parse_args() -> argparse.Namespace:
     help="Inclusive test split end date based on context_end_date.",
   )
   parser.add_argument(
-    "--top-k",
-    type=int,
-    default=20,
-    help="Top-k size for cross-sectional return diagnostics.",
-  )
-  parser.add_argument(
     "--split-mode",
     choices=["protocol", "all"],
     default="protocol",
@@ -317,6 +294,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
   args = parse_args()
+  target = "close"
 
   if not args.skip_check:
     print("Running system preflight check...")
@@ -352,7 +330,7 @@ def main() -> None:
   prepared = build_task_collection(
     df=df,
     columns=columns,
-    target=args.target,
+    target=target,
     horizon=args.horizon,
     context_length=args.context_length,
     mode=args.mode,
@@ -389,7 +367,6 @@ def main() -> None:
     batch_size=batch_size,
     context_length=args.context_length,
     horizon=args.horizon,
-    target=args.target,
     use_xreg=use_xreg,
   )
 
@@ -449,7 +426,7 @@ def main() -> None:
       point_forecast=point_forecast,
       quantile_forecast=quantile_forecast,
       forecast_frame=forecast_frame,
-      target=args.target,
+      target=target,
       split_mode=args.split_mode,
       eval_start=args.eval_start,
       eval_end=args.eval_end,
@@ -459,7 +436,6 @@ def main() -> None:
       val_end=args.val_end,
       test_start=args.test_start,
       test_end=args.test_end,
-      top_k=args.top_k,
       splits=tuple(split_names),
     )
 
@@ -473,8 +449,8 @@ def main() -> None:
       print(f"Wrote daily cross-sectional metrics to {daily_metrics_path}")
     else:
       print(
-        "Skipping cross-sectional return metrics because they are only defined "
-        "for target=close in the current experiment protocol."
+        "Skipping cross-sectional return metrics because no valid close-based "
+        "return samples were available in the selected evaluation range."
       )
 
     metrics_path = Path(args.metrics_output or forecast_path.with_suffix(".metrics.json"))
@@ -494,10 +470,9 @@ def main() -> None:
       metrics_payload=metrics_payload,
       run_name=args.run_name or Path(args.zero_shot_run_dir).name,
       model_id=args.model_id,
-      target=args.target,
+      target=target,
       context_length=args.context_length,
       horizon=args.horizon,
-      top_k=args.top_k,
       xreg="disabled" if args.no_xreg else "enabled",
       source_predictions_path=forecast_path,
       source_daily_metrics_path=daily_metrics_path,

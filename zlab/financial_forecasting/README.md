@@ -42,7 +42,6 @@ The low-level runner remains:
 python zlab/financial_forecasting/scripts/forecast_ohlcva_csv.py \
   /home/yzh/workspace/Kronos-0/zlab/data/daily \
   --mode backtest \
-  --target close \
   --horizon 5 \
   --context-length 32 \
   --split-mode all \
@@ -53,7 +52,7 @@ This script is still the right place for TimesFM-specific changes such as:
 
 - task construction
 - eval-range filtering
-- cross-sectional metric payload assembly
+- return-based metric payload assembly
 - zero-shot run layout materialization
 
 ## Related docs

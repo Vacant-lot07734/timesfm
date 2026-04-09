@@ -1,4 +1,4 @@
-# TimesFM vs Kronos Stage1
+# TimesFM vs Kronos Zero-Shot
 
 This protocol is now owned by the shared workspace `zlab` layer rather than by
 the TimesFM repo alone.
@@ -11,11 +11,19 @@ the TimesFM repo alone.
 - Train: `2025-06-01 ~ 2025-11-30`
 - Val: `2025-12-01 ~ 2025-12-31`
 - Test: `2026-01-01 ~ 2026-02-28`
-- Main metrics: `mean_rank_ic`, `mean_ic`, `mae`
+- Main metrics: `rank_ic`, `ic`, `rank_icir`, `icir`
+- Supporting metrics: `da`, `mae`, `rmse`
 
 Shared reference:
 
 - `/home/yzh/workspace/zlab/protocol/zero_shot.md`
+- `/home/yzh/workspace/zlab/protocol/evaluation_metrics.md`
+- `/home/yzh/workspace/zlab/protocol/evaluation_metrics.json`
+
+Deferred strategy-validation metrics:
+
+- `AER`
+- `IR`
 
 ## Preferred commands
 

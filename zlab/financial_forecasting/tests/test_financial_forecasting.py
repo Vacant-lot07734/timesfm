@@ -189,7 +189,7 @@ def test_compute_forecast_metrics_and_constraint_postprocessing():
   prepared = build_walk_forward_tasks(
     df=_make_frame(),
     columns=OHLCVAColumns(exchange="exchange"),
-    target="close_return",
+    target="close",
     horizon=2,
     context_length=4,
     stride=2,
@@ -198,18 +198,11 @@ def test_compute_forecast_metrics_and_constraint_postprocessing():
   tasks = prepared.tasks[:2]
   actual = np.stack([task.future_values for task in tasks], axis=0)
   point = actual.copy()
-  quantiles = np.zeros((2, 2, 10), dtype=np.float32)
-  quantiles[..., 1] = actual - 0.02
-  quantiles[..., 2] = actual - 0.01
-  quantiles[..., 5] = actual
-  quantiles[..., 8] = actual + 0.01
-  quantiles[..., 9] = actual + 0.02
 
-  metrics = compute_forecast_metrics(tasks, point, quantiles)
+  metrics = compute_forecast_metrics(tasks, point)
   assert metrics["mae"] == 0.0
   assert metrics["rmse"] == 0.0
-  assert metrics["coverage_90"] == 1.0
-  assert metrics["directional_accuracy"] == 1.0
+  assert metrics["da"] == 1.0
 
   constrained = enforce_ohlc_constraints(
     {
@@ -314,28 +307,25 @@ def test_compute_cross_sectional_metrics_groups_by_day_and_horizon():
     }
   )
 
-  daily_metrics, summary = compute_cross_sectional_metrics(frame, top_k=1)
+  daily_metrics, summary = compute_cross_sectional_metrics(frame)
 
   assert len(daily_metrics) == 2
   assert np.isclose(daily_metrics.iloc[0]["rank_ic"], 1.0)
   assert np.isclose(daily_metrics.iloc[0]["ic"], 1.0)
-  assert np.isclose(daily_metrics.iloc[0]["top_k_return"], 0.03)
-  assert np.isclose(daily_metrics.iloc[0]["bottom_k_return"], 0.01)
-  assert np.isclose(daily_metrics.iloc[0]["long_short_return"], 0.02)
   assert np.isclose(daily_metrics.iloc[1]["rank_ic"], -1.0)
   assert np.isclose(daily_metrics.iloc[1]["ic"], -1.0)
 
-  assert summary["top_k"] == 1
   assert len(summary["rows"]) == 1
   row = summary["rows"][0]
   assert row["split"] == "val"
   assert row["horizon"] == 1
-  assert np.isclose(row["mean_rank_ic"], 0.0)
-  assert np.isclose(row["mean_ic"], 0.0)
-  assert np.isclose(row["topk_mean_return"], 0.02)
-  assert np.isclose(row["bottomk_mean_return"], 0.02)
-  assert np.isclose(row["long_short_topk_mean_return"], 0.0)
-  assert np.isclose(row["mae_return"], 0.18)
+  assert np.isclose(row["rank_ic"], 0.0)
+  assert np.isclose(row["ic"], 0.0)
+  assert np.isclose(row["da"], 1.0)
+  assert np.isclose(row["mae"], 0.18)
+  assert np.isclose(row["rmse"], np.sqrt((0.27**2 + 0.18**2 + 0.09**2 + 0.29**2 + 0.18**2 + 0.07**2) / 6.0))
+  assert np.isclose(row["rank_icir"], 0.0)
+  assert np.isclose(row["icir"], 0.0)
 
 
 def test_materialize_zero_shot_layout_writes_expected_split_files(tmp_path):
@@ -360,13 +350,11 @@ def test_materialize_zero_shot_layout_writes_expected_split_files(tmp_path):
     }
   )
   metrics_payload = {
-    "experiment_protocol": {"top_k": 20},
-    "cross_sectional_summary": {
-      "rows": [
-        {"split": "val", "horizon": 1, "mean_rank_ic": 1.0},
-        {"split": "test", "horizon": 1, "mean_rank_ic": -1.0},
-      ]
-    },
+    "experiment_protocol": {"target": "close"},
+    "split_summaries": [
+      {"split": "val", "horizon": 1, "rank_ic": 1.0, "ic": 1.0, "rank_icir": None, "icir": None, "da": 1.0, "mae": 0.05, "rmse": 0.05},
+      {"split": "test", "horizon": 1, "rank_ic": -1.0, "ic": -1.0, "rank_icir": None, "icir": None, "da": 1.0, "mae": 0.05, "rmse": 0.05},
+    ],
   }
 
   materialize_zero_shot_layout(
@@ -379,7 +367,6 @@ def test_materialize_zero_shot_layout_writes_expected_split_files(tmp_path):
     target="close",
     context_length=32,
     horizon=1,
-    top_k=20,
     xreg="disabled",
     source_predictions_path=tmp_path / "predictions_all.csv",
     source_daily_metrics_path=tmp_path / "daily_metrics_all.csv",
@@ -397,7 +384,7 @@ def test_materialize_zero_shot_layout_writes_expected_split_files(tmp_path):
 
   val_metrics = json.loads((run_dir / "val" / "metrics.json").read_text())
   assert val_metrics["prediction_rows"] == 1
-  assert val_metrics["summary"]["mean_rank_ic"] == 1.0
+  assert val_metrics["rank_ic"] == 1.0
 
 
 def test_materialize_zero_shot_layout_supports_all_split(tmp_path):
@@ -432,7 +419,6 @@ def test_materialize_zero_shot_layout_supports_all_split(tmp_path):
     target="close",
     context_length=20,
     horizon=1,
-    top_k=20,
     xreg="disabled",
     splits=("all",),
   )
@@ -473,12 +459,11 @@ def test_shared_wrappers_build_metrics_and_layout(tmp_path):
     val_end="2025-12-31",
     test_start="2026-01-01",
     test_end="2026-02-28",
-    top_k=1,
     splits=("all",),
   )
 
   assert daily_metrics is not None
-  assert "cross_sectional_summary" in metrics_payload
+  assert "split_summaries" in metrics_payload
 
   materialize_run_layout(
     run_dir=tmp_path / "run",
@@ -490,7 +475,6 @@ def test_shared_wrappers_build_metrics_and_layout(tmp_path):
     target="close",
     context_length=20,
     horizon=1,
-    top_k=1,
     xreg="disabled",
     splits=("all",),
   )

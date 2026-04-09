@@ -401,12 +401,6 @@ def target_is_nonnegative(target: FinancialTarget) -> bool:
   return target in {"close", "log_close", "hlc3", "ohlc4", "volume", "log_volume", "vwap"}
 
 
-def target_supports_directional_accuracy(target: FinancialTarget) -> bool:
-  """Whether directional accuracy should be computed on target levels directly."""
-
-  return target in {"close_return", "log_close_return"}
-
-
 def build_last_window_tasks(
   df: pd.DataFrame,
   columns: OHLCVAColumns,
@@ -644,23 +638,11 @@ def collate_timesfm_inputs(tasks: list[PreparedTask]) -> dict[str, Any]:
   }
 
 
-def _flatten_actuals(tasks: list[PreparedTask]) -> np.ndarray:
-  values = [
-    task.future_values.astype(np.float32)
-    for task in tasks
-    if task.future_values is not None
-  ]
-  if not values:
-    raise ValueError("All tasks must contain future_values for evaluation.")
-  return np.concatenate(values, axis=0)
-
-
 def compute_forecast_metrics(
   tasks: list[PreparedTask],
   point_forecast: np.ndarray,
-  quantile_forecast: np.ndarray | None = None,
 ) -> dict[str, Any]:
-  """Computes aggregate financial forecasting metrics."""
+  """Computes return-space error metrics for close-target financial backtests."""
 
   if len(tasks) == 0:
     raise ValueError("tasks must be non-empty.")
@@ -668,79 +650,38 @@ def compute_forecast_metrics(
     raise ValueError("point_forecast batch size must match tasks.")
   if any(task.future_values is None for task in tasks):
     raise ValueError("All tasks must contain future_values for evaluation.")
+  if any(task.target_name != "close" for task in tasks):
+    raise ValueError("compute_forecast_metrics only supports close-target tasks.")
 
-  actual = _flatten_actuals(tasks)
-  forecast = point_forecast.reshape(-1)
-  error = forecast - actual
-  abs_actual = np.abs(actual)
-  abs_forecast = np.abs(forecast)
-  smape_denom = abs_actual + abs_forecast
+  pred_returns = []
+  true_returns = []
+  direction_hits = []
 
-  metrics: dict[str, Any] = {
-    "task_count": len(tasks),
-    "point_count": int(actual.size),
+  for task, prediction in zip(tasks, point_forecast, strict=True):
+    truth = task.future_values
+    if truth is None:
+      continue
+    anchor = float(task.context_values[-1])
+    if abs(anchor) <= _RETURN_EPS:
+      continue
+    pred_return = prediction.astype(np.float32) / anchor - 1.0
+    true_return = truth.astype(np.float32) / anchor - 1.0
+    pred_returns.append(pred_return)
+    true_returns.append(true_return)
+    direction_hits.append(np.sign(pred_return) == np.sign(true_return))
+
+  if not pred_returns:
+    raise ValueError("No valid close-based return samples available for evaluation.")
+
+  pred_array = np.concatenate(pred_returns)
+  true_array = np.concatenate(true_returns)
+  error = pred_array - true_array
+  return {
+    "sample_count": int(error.size),
     "mae": float(np.mean(np.abs(error))),
     "rmse": float(np.sqrt(np.mean(np.square(error)))),
-    "wape": float(np.sum(np.abs(error)) / max(np.sum(abs_actual), 1e-8)),
-    "smape": float(
-      np.mean(
-        np.where(smape_denom > 1e-8, 2.0 * np.abs(error) / smape_denom, 0.0)
-      )
-    ),
+    "da": float(np.mean(np.concatenate(direction_hits))),
   }
-
-  target_name = tasks[0].target_name
-  direction_hits = []
-  for task, prediction in zip(tasks, point_forecast, strict=True):
-    truth = task.future_values
-    if truth is None:
-      continue
-    if target_supports_directional_accuracy(target_name):
-      direction_hits.append(np.sign(prediction) == np.sign(truth))
-      continue
-    anchor = np.array([task.context_values[-1]], dtype=np.float32)
-    pred_delta = np.diff(np.concatenate([anchor, prediction.astype(np.float32)]))
-    true_delta = np.diff(np.concatenate([anchor, truth.astype(np.float32)]))
-    direction_hits.append(np.sign(pred_delta) == np.sign(true_delta))
-
-  if direction_hits:
-    metrics["directional_accuracy"] = float(np.mean(np.concatenate(direction_hits)))
-
-  if quantile_forecast is not None:
-    flattened_quantiles = quantile_forecast.reshape(-1, quantile_forecast.shape[-1])
-    q10 = flattened_quantiles[:, 1]
-    q20 = flattened_quantiles[:, 2]
-    q80 = flattened_quantiles[:, 8]
-    q90 = flattened_quantiles[:, 9]
-    metrics["coverage_80"] = float(np.mean((actual >= q20) & (actual <= q80)))
-    metrics["coverage_90"] = float(np.mean((actual >= q10) & (actual <= q90)))
-
-  per_symbol = {}
-  start = 0
-  for task, prediction in zip(tasks, point_forecast, strict=True):
-    truth = task.future_values
-    if truth is None:
-      continue
-    symbol = task.symbol
-    end = start + len(truth)
-    symbol_forecast = forecast[start:end]
-    symbol_truth = actual[start:end]
-    symbol_error = symbol_forecast - symbol_truth
-    block = per_symbol.setdefault(symbol, {"point_count": 0, "abs_error_sum": 0.0, "sq_error_sum": 0.0})
-    block["point_count"] += int(len(truth))
-    block["abs_error_sum"] += float(np.sum(np.abs(symbol_error)))
-    block["sq_error_sum"] += float(np.sum(np.square(symbol_error)))
-    start = end
-
-  metrics["per_symbol"] = {
-    symbol: {
-      "point_count": block["point_count"],
-      "mae": block["abs_error_sum"] / block["point_count"],
-      "rmse": float(np.sqrt(block["sq_error_sum"] / block["point_count"])),
-    }
-    for symbol, block in per_symbol.items()
-  }
-  return metrics
 
 
 def add_experiment_splits(
@@ -812,13 +753,9 @@ def _safe_information_ratio(values: pd.Series) -> float | None:
 def compute_cross_sectional_metrics(
   forecast_frame: pd.DataFrame,
   *,
-  top_k: int = 20,
   splits: Sequence[str] = ("val", "test"),
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
   """Computes daily and aggregated cross-sectional return metrics."""
-
-  if top_k <= 0:
-    raise ValueError("top_k must be positive.")
 
   required_columns = {
     "instrument",
@@ -852,9 +789,6 @@ def compute_cross_sectional_metrics(
     if cross_section_size == 0:
       continue
 
-    k = min(top_k, cross_section_size)
-    bottom_group = group.sort_values("pred_return", ascending=True).head(k)
-    top_group = group.head(k)
     ic = _safe_correlation(group["pred_return"], group["true_return"], method="pearson")
     rank_ic = _safe_correlation(
       group["pred_return"],
@@ -868,14 +802,8 @@ def compute_cross_sectional_metrics(
         "horizon": int(horizon),
         "context_end_date": context_end_date,
         "cross_section_size": int(cross_section_size),
-        "top_k": int(k),
         "ic": ic,
         "rank_ic": rank_ic,
-        "top_k_return": float(top_group["true_return"].mean()),
-        "bottom_k_return": float(bottom_group["true_return"].mean()),
-        "long_short_return": float(
-          top_group["true_return"].mean() - bottom_group["true_return"].mean()
-        ),
       }
     )
 
@@ -887,14 +815,8 @@ def compute_cross_sectional_metrics(
       sample_frame = frame[
         (frame["split"] == split_name) & (frame["horizon"] == horizon)
       ].copy()
-      mae_return = float(
-        np.mean(np.abs(sample_frame["pred_return"] - sample_frame["true_return"]))
-      )
-      mae_close = None
-      if {"pred_close", "true_close"}.issubset(sample_frame.columns):
-        mae_close = float(
-          np.mean(np.abs(sample_frame["pred_close"] - sample_frame["true_close"]))
-        )
+      errors = sample_frame["pred_return"] - sample_frame["true_return"]
+      direction_hits = np.sign(sample_frame["pred_return"]) == np.sign(sample_frame["true_return"])
 
       summary_rows.append(
         {
@@ -903,19 +825,17 @@ def compute_cross_sectional_metrics(
           "sample_count": int(len(sample_frame)),
           "date_count": int(len(group)),
           "instrument_count": int(sample_frame["instrument"].nunique()),
-          "mean_ic": _safe_mean(group["ic"]),
-          "mean_rank_ic": _safe_mean(group["rank_ic"]),
-          "ic_ir": _safe_information_ratio(group["ic"]),
-          "rank_ic_ir": _safe_information_ratio(group["rank_ic"]),
-          "topk_mean_return": float(group["top_k_return"].mean()),
-          "bottomk_mean_return": float(group["bottom_k_return"].mean()),
-          "long_short_topk_mean_return": float(group["long_short_return"].mean()),
-          "mae_return": mae_return,
-          "mae_close": mae_close,
+          "ic": _safe_mean(group["ic"]),
+          "rank_ic": _safe_mean(group["rank_ic"]),
+          "icir": _safe_information_ratio(group["ic"]),
+          "rank_icir": _safe_information_ratio(group["rank_ic"]),
+          "da": float(direction_hits.mean()) if len(sample_frame) else None,
+          "mae": float(np.mean(np.abs(errors))) if len(sample_frame) else None,
+          "rmse": float(np.sqrt(np.mean(np.square(errors)))) if len(sample_frame) else None,
         }
       )
 
-  return daily_metrics, {"top_k": int(top_k), "rows": summary_rows}
+  return daily_metrics, {"rows": summary_rows}
 
 
 def apply_experiment_split_mode(
@@ -964,17 +884,14 @@ def build_backtest_metrics_payload(
   val_end: str,
   test_start: str,
   test_end: str,
-  top_k: int,
   splits: Sequence[str],
 ) -> tuple[dict[str, Any], pd.DataFrame | None]:
   """Builds the shared metrics payload for zero-shot backtests."""
 
+  if target != "close":
+    raise ValueError("Financial backtests only support target=close.")
+
   metrics_payload = {
-    "point_metrics": compute_forecast_metrics(
-      tasks=tasks,
-      point_forecast=point_forecast,
-      quantile_forecast=quantile_forecast,
-    ),
     "experiment_protocol": {
       "split_mode": split_mode,
       "eval_start": eval_start,
@@ -985,19 +902,15 @@ def build_backtest_metrics_payload(
       "val_end": val_end,
       "test_start": test_start,
       "test_end": test_end,
-      "top_k": top_k,
+      "target": target,
     },
   }
 
-  if target != "close":
-    return metrics_payload, None
-
-  daily_metrics, cross_sectional_summary = compute_cross_sectional_metrics(
+  daily_metrics, split_summary_payload = compute_cross_sectional_metrics(
     forecast_frame,
-    top_k=top_k,
     splits=tuple(splits),
   )
-  metrics_payload["cross_sectional_summary"] = cross_sectional_summary
+  metrics_payload["split_summaries"] = split_summary_payload["rows"]
   return metrics_payload, daily_metrics
 
 
@@ -1120,7 +1033,6 @@ def materialize_zero_shot_layout(
   target: str,
   context_length: int,
   horizon: int,
-  top_k: int,
   xreg: str,
   daily_metrics_frame: pd.DataFrame | None = None,
   source_predictions_path: str | Path | None = None,
@@ -1136,7 +1048,7 @@ def materialize_zero_shot_layout(
   target_dir = Path(run_dir)
   target_dir.mkdir(parents=True, exist_ok=True)
   split_names = [str(name) for name in splits]
-  summary_rows = metrics_payload.get("cross_sectional_summary", {}).get("rows", [])
+  summary_rows = metrics_payload.get("split_summaries", [])
   daily_frame = (
     daily_metrics_frame.copy()
     if daily_metrics_frame is not None
@@ -1150,7 +1062,6 @@ def materialize_zero_shot_layout(
     "target": target,
     "context_length": int(context_length),
     "horizon": int(horizon),
-    "top_k": int(top_k),
     "xreg": xreg,
     "source_predictions": (
       str(Path(source_predictions_path).resolve())
@@ -1201,14 +1112,13 @@ def materialize_zero_shot_layout(
       "target": target,
       "context_length": int(context_length),
       "horizon": int(horizon),
-      "top_k": int(top_k),
       "xreg": xreg,
       "prediction_rows": int(len(split_predictions)),
       "daily_metric_rows": int(len(split_daily)),
-      "summary": (
+      **(
         {key: _json_ready(value) for key, value in split_summary.items()}
         if split_summary is not None
-        else None
+        else {}
       ),
     }
     (split_dir / "metrics.json").write_text(
@@ -1227,7 +1137,6 @@ def materialize_stage1_layout(
   target: str,
   context_length: int,
   horizon: int,
-  top_k: int,
   xreg: str,
   daily_metrics_frame: pd.DataFrame | None = None,
   source_predictions_path: str | Path | None = None,
@@ -1246,7 +1155,6 @@ def materialize_stage1_layout(
     target=target,
     context_length=context_length,
     horizon=horizon,
-    top_k=top_k,
     xreg=xreg,
     daily_metrics_frame=daily_metrics_frame,
     source_predictions_path=source_predictions_path,
@@ -1266,7 +1174,6 @@ def materialize_run_layout(
   target: str,
   context_length: int,
   horizon: int,
-  top_k: int,
   xreg: str,
   daily_metrics_frame: pd.DataFrame | None = None,
   source_predictions_path: str | Path | None = None,
@@ -1285,7 +1192,6 @@ def materialize_run_layout(
     target=target,
     context_length=context_length,
     horizon=horizon,
-    top_k=top_k,
     xreg=xreg,
     daily_metrics_frame=daily_metrics_frame,
     source_predictions_path=source_predictions_path,
