@@ -462,17 +462,15 @@ def build_walk_forward_tasks(
   target: FinancialTarget,
   horizon: int,
   context_length: int,
-  stride: int | None = None,
   min_context: int = 32,
 ) -> PreparedTaskCollection:
-  """Builds rolling backtest tasks across all symbols."""
+  """Builds rolling backtest tasks across all legal prediction starts."""
 
   if horizon <= 0:
     raise ValueError("horizon must be positive.")
   if context_length <= 0:
     raise ValueError("context_length must be positive.")
 
-  walk_stride = stride or horizon
   tasks: list[PreparedTask] = []
   skipped_symbols: dict[str, str] = {}
   frame = validate_ohlcva_frame(df, columns)
@@ -494,7 +492,7 @@ def build_walk_forward_tasks(
     if columns.exchange is not None:
       static_categorical_covariates["exchange"] = str(group[columns.exchange].iloc[-1])
 
-    for cutoff in range(min_context, len(values) - horizon + 1, walk_stride):
+    for cutoff in range(min_context, len(values) - horizon + 1):
       context_start = max(0, cutoff - context_length)
       context_values = values[context_start:cutoff]
       if len(context_values) < min_context:
@@ -534,7 +532,6 @@ def build_task_collection(
   horizon: int,
   context_length: int,
   mode: Literal["forecast", "backtest"] = "backtest",
-  stride: int | None = None,
   min_context: int = 128,
 ) -> PreparedTaskCollection:
   """Builds a task collection for either forecast or backtest mode."""
@@ -555,7 +552,6 @@ def build_task_collection(
       target=target,
       horizon=horizon,
       context_length=context_length,
-      stride=stride,
       min_context=min_context,
     )
   raise ValueError(f"Unsupported mode: {mode}")

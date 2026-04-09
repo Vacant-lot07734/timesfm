@@ -118,12 +118,11 @@ def test_build_walk_forward_tasks_generates_calendar_covariates():
     target="close",
     horizon=2,
     context_length=4,
-    stride=2,
     min_context=4,
   )
 
   assert prepared.skipped_symbols == {}
-  assert len(prepared.tasks) == 6
+  assert len(prepared.tasks) == 10
 
   first_task = prepared.tasks[0]
   assert first_task.symbol == "AAA"
@@ -146,11 +145,10 @@ def test_build_task_collection_and_eval_range_filter_wrapper():
     horizon=2,
     context_length=4,
     mode="backtest",
-    stride=2,
     min_context=4,
   )
 
-  assert len(prepared.tasks) == 6
+  assert len(prepared.tasks) == 10
 
   filtered = filter_tasks_by_eval_range(
     prepared,
@@ -192,7 +190,6 @@ def test_compute_forecast_metrics_and_constraint_postprocessing():
     target="close",
     horizon=2,
     context_length=4,
-    stride=2,
     min_context=4,
   )
   tasks = prepared.tasks[:2]
@@ -225,7 +222,6 @@ def test_flatten_forecast_frame_for_close_includes_return_fields():
     target="close",
     horizon=2,
     context_length=4,
-    stride=2,
     min_context=4,
   )
   task = prepared.tasks[0]
@@ -440,7 +436,6 @@ def test_shared_wrappers_build_metrics_and_layout(tmp_path):
     target="close",
     horizon=1,
     context_length=4,
-    stride=1,
     min_context=4,
   )
   tasks = prepared.tasks[:2]

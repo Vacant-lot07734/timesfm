@@ -159,12 +159,6 @@ def parse_args() -> argparse.Namespace:
     help="Minimum history required per symbol after target preprocessing.",
   )
   parser.add_argument(
-    "--stride",
-    type=int,
-    default=None,
-    help="Backtest stride. Defaults to the horizon.",
-  )
-  parser.add_argument(
     "--symbols",
     default=None,
     help="Optional comma-separated symbol whitelist.",
@@ -334,7 +328,6 @@ def main() -> None:
     horizon=args.horizon,
     context_length=args.context_length,
     mode=args.mode,
-    stride=args.stride,
     min_context=args.min_context,
   )
 
