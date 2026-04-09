@@ -567,7 +567,7 @@ def filter_tasks_by_eval_range(
   eval_start: str | pd.Timestamp | None = None,
   eval_end: str | pd.Timestamp | None = None,
 ) -> PreparedTaskCollection:
-  """Filters prepared tasks by inclusive cutoff date boundaries."""
+  """Filters prepared tasks by inclusive prediction_start_date boundaries."""
 
   if eval_start is None and eval_end is None:
     return prepared
@@ -577,8 +577,14 @@ def filter_tasks_by_eval_range(
   filtered_tasks = [
     task
     for task in prepared.tasks
-    if (start_ts is None or task.cutoff_time >= start_ts)
-    and (end_ts is None or task.cutoff_time <= end_ts)
+    if (
+      start_ts is None
+      or pd.Timestamp(task.future_timestamps[0]) >= start_ts
+    )
+    and (
+      end_ts is None
+      or pd.Timestamp(task.future_timestamps[0]) <= end_ts
+    )
   ]
   return PreparedTaskCollection(
     tasks=filtered_tasks,
@@ -693,7 +699,7 @@ def add_experiment_splits(
   val_end: str = "2025-12-31",
   test_start: str = "2026-01-01",
   test_end: str = "2026-02-28",
-  date_column: str = "context_end_date",
+  date_column: str = "prediction_start_date",
 ) -> pd.DataFrame:
   """Assigns train/val/test split labels using the experiment protocol."""
 
@@ -759,8 +765,8 @@ def compute_cross_sectional_metrics(
 
   required_columns = {
     "instrument",
-    "context_end_date",
-    "target_end_date",
+    "prediction_start_date",
+    "prediction_end_date",
     "horizon",
     "pred_return",
     "true_return",
@@ -774,14 +780,14 @@ def compute_cross_sectional_metrics(
     )
 
   frame = forecast_frame.copy()
-  frame["context_end_date"] = pd.to_datetime(frame["context_end_date"], errors="raise")
-  frame["target_end_date"] = pd.to_datetime(frame["target_end_date"], errors="raise")
+  frame["prediction_start_date"] = pd.to_datetime(frame["prediction_start_date"], errors="raise")
+  frame["prediction_end_date"] = pd.to_datetime(frame["prediction_end_date"], errors="raise")
   frame = frame[frame["split"].isin(set(splits))].copy()
   frame = frame.dropna(subset=["pred_return", "true_return"])
 
   daily_rows = []
-  for (split_name, horizon, context_end_date), group in frame.groupby(
-    ["split", "horizon", "context_end_date"],
+  for (split_name, horizon, prediction_start_date), group in frame.groupby(
+    ["split", "horizon", "prediction_start_date"],
     sort=True,
   ):
     group = group.sort_values("pred_return", ascending=False).reset_index(drop=True)
@@ -800,7 +806,7 @@ def compute_cross_sectional_metrics(
       {
         "split": split_name,
         "horizon": int(horizon),
-        "context_end_date": context_end_date,
+        "prediction_start_date": prediction_start_date,
         "cross_section_size": int(cross_section_size),
         "ic": ic,
         "rank_ic": rank_ic,
@@ -894,6 +900,12 @@ def build_backtest_metrics_payload(
   metrics_payload = {
     "experiment_protocol": {
       "split_mode": split_mode,
+      "split_anchor": "prediction_start_date",
+      "non_trading_boundary_policy": (
+        "use the first trading day on or after the configured range start as "
+        "prediction_start_date"
+      ),
+      "allow_prediction_end_spillover": True,
       "eval_start": eval_start,
       "eval_end": eval_end,
       "train_start": train_start,
@@ -931,6 +943,7 @@ def flatten_forecast_frame(
     quantiles = quantile_forecast[task_index] if quantile_forecast is not None else None
     actual_values = task.future_values
     anchor_value = float(task.context_values[-1])
+    prediction_start_date = pd.Timestamp(task.future_timestamps[0])
     for step, (forecast_time, point_value) in enumerate(
       zip(task.future_timestamps, prediction, strict=True),
       start=1,
@@ -943,8 +956,9 @@ def flatten_forecast_frame(
         "frequency": task.frequency,
         "cutoff_time": task.cutoff_time,
         "context_end_date": task.cutoff_time,
+        "prediction_start_date": prediction_start_date,
         "forecast_time": forecast_time,
-        "target_end_date": forecast_time,
+        "prediction_end_date": forecast_time,
         "step": step,
         "horizon": step,
         "context_length": len(task.context_values),

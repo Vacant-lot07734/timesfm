@@ -8,6 +8,10 @@ the TimesFM repo alone.
 - Context lengths: `20`, `32`
 - Horizons: `1`, `5`
 - Target: `close`
+- Split anchor: `prediction_start_date`
+- If a configured range start is not a trading day, use the first trading day
+  inside the range as the first `prediction_start_date`
+- Spillover rule: keep windows whose `prediction_start_date` is in range, even if `prediction_end_date` exceeds the split end
 - Train: `2025-06-01 ~ 2025-11-30`
 - Val: `2025-12-01 ~ 2025-12-31`
 - Test: `2026-01-01 ~ 2026-02-28`

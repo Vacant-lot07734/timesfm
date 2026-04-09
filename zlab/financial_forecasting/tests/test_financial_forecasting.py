@@ -154,15 +154,15 @@ def test_build_task_collection_and_eval_range_filter_wrapper():
 
   filtered = filter_tasks_by_eval_range(
     prepared,
-    eval_start="2025-01-08",
-    eval_end="2025-01-08",
+    eval_start="2025-01-09",
+    eval_end="2025-01-09",
   )
 
   assert len(filtered.tasks) == 2
   assert {
-    task.cutoff_time.strftime("%Y-%m-%d")
+    task.future_timestamps[0].strftime("%Y-%m-%d")
     for task in filtered.tasks
-  } == {"2025-01-08"}
+  } == {"2025-01-09"}
 
 
 def test_build_last_window_tasks_skips_short_symbols():
@@ -244,6 +244,8 @@ def test_flatten_forecast_frame_for_close_includes_return_fields():
     frame["pred_return"],
     np.array([105.0, 106.0], dtype=np.float32) / task.context_values[-1] - 1.0,
   )
+  assert list(pd.to_datetime(frame["prediction_start_date"])) == [task.future_timestamps[0]] * 2
+  assert list(pd.to_datetime(frame["prediction_end_date"])) == list(task.future_timestamps)
   assert "true_close" in frame.columns
   assert "true_return" in frame.columns
 
@@ -251,7 +253,7 @@ def test_flatten_forecast_frame_for_close_includes_return_fields():
 def test_add_experiment_splits_assigns_protocol_labels():
   frame = pd.DataFrame(
     {
-      "context_end_date": pd.to_datetime(["2025-11-28", "2025-12-15", "2026-01-10", "2026-03-01"]),
+      "prediction_start_date": pd.to_datetime(["2025-11-28", "2025-12-15", "2026-01-10", "2026-03-01"]),
       "value": [1, 2, 3, 4],
     }
   )
@@ -264,7 +266,7 @@ def test_add_experiment_splits_assigns_protocol_labels():
 def test_apply_experiment_split_mode_supports_all():
   frame = pd.DataFrame(
     {
-      "context_end_date": pd.to_datetime(["2025-11-28", "2025-12-15"]),
+      "prediction_start_date": pd.to_datetime(["2025-11-28", "2025-12-15"]),
       "value": [1, 2],
     }
   )
@@ -278,7 +280,7 @@ def test_compute_cross_sectional_metrics_groups_by_day_and_horizon():
   frame = pd.DataFrame(
     {
       "instrument": ["AAA", "BBB", "CCC", "AAA", "BBB", "CCC"],
-      "context_end_date": pd.to_datetime(
+      "prediction_start_date": pd.to_datetime(
         [
           "2025-12-01",
           "2025-12-01",
@@ -288,7 +290,7 @@ def test_compute_cross_sectional_metrics_groups_by_day_and_horizon():
           "2025-12-02",
         ]
       ),
-      "target_end_date": pd.to_datetime(
+      "prediction_end_date": pd.to_datetime(
         [
           "2025-12-02",
           "2025-12-02",
@@ -333,7 +335,8 @@ def test_materialize_zero_shot_layout_writes_expected_split_files(tmp_path):
     {
       "instrument": ["AAA", "BBB"],
       "context_end_date": pd.to_datetime(["2025-12-01", "2026-01-02"]),
-      "target_end_date": pd.to_datetime(["2025-12-02", "2026-01-07"]),
+      "prediction_start_date": pd.to_datetime(["2025-12-02", "2026-01-03"]),
+      "prediction_end_date": pd.to_datetime(["2025-12-02", "2026-01-07"]),
       "horizon": [1, 1],
       "pred_return": [0.1, 0.2],
       "true_return": [0.05, 0.25],
@@ -344,7 +347,7 @@ def test_materialize_zero_shot_layout_writes_expected_split_files(tmp_path):
     {
       "split": ["val", "test"],
       "horizon": [1, 1],
-      "context_end_date": pd.to_datetime(["2025-12-01", "2026-01-02"]),
+      "prediction_start_date": pd.to_datetime(["2025-12-02", "2026-01-03"]),
       "ic": [1.0, -1.0],
       "rank_ic": [1.0, -1.0],
     }
@@ -392,7 +395,8 @@ def test_materialize_zero_shot_layout_supports_all_split(tmp_path):
     {
       "instrument": ["AAA"],
       "context_end_date": pd.to_datetime(["2025-12-01"]),
-      "target_end_date": pd.to_datetime(["2025-12-02"]),
+      "prediction_start_date": pd.to_datetime(["2025-12-02"]),
+      "prediction_end_date": pd.to_datetime(["2025-12-02"]),
       "horizon": [1],
       "pred_return": [0.1],
       "true_return": [0.05],
@@ -403,7 +407,7 @@ def test_materialize_zero_shot_layout_supports_all_split(tmp_path):
     {
       "split": ["all"],
       "horizon": [1],
-      "context_end_date": pd.to_datetime(["2025-12-01"]),
+      "prediction_start_date": pd.to_datetime(["2025-12-02"]),
       "ic": [None],
       "rank_ic": [None],
     }

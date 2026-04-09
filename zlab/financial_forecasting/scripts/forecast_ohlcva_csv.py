@@ -226,32 +226,32 @@ def parse_args() -> argparse.Namespace:
   parser.add_argument(
     "--train-start",
     default="2025-06-01",
-    help="Inclusive train split start date based on context_end_date.",
+    help="Inclusive train split start date based on prediction_start_date.",
   )
   parser.add_argument(
     "--train-end",
     default="2025-11-30",
-    help="Inclusive train split end date based on context_end_date.",
+    help="Inclusive train split end date based on prediction_start_date.",
   )
   parser.add_argument(
     "--val-start",
     default="2025-12-01",
-    help="Inclusive validation split start date based on context_end_date.",
+    help="Inclusive validation split start date based on prediction_start_date.",
   )
   parser.add_argument(
     "--val-end",
     default="2025-12-31",
-    help="Inclusive validation split end date based on context_end_date.",
+    help="Inclusive validation split end date based on prediction_start_date.",
   )
   parser.add_argument(
     "--test-start",
     default="2026-01-01",
-    help="Inclusive test split start date based on context_end_date.",
+    help="Inclusive test split start date based on prediction_start_date.",
   )
   parser.add_argument(
     "--test-end",
     default="2026-02-28",
-    help="Inclusive test split end date based on context_end_date.",
+    help="Inclusive test split end date based on prediction_start_date.",
   )
   parser.add_argument(
     "--split-mode",
@@ -265,12 +265,12 @@ def parse_args() -> argparse.Namespace:
   parser.add_argument(
     "--eval-start",
     default=None,
-    help="Optional inclusive evaluation start date based on context_end_date.",
+    help="Optional inclusive evaluation start date based on prediction_start_date.",
   )
   parser.add_argument(
     "--eval-end",
     default=None,
-    help="Optional inclusive evaluation end date based on context_end_date.",
+    help="Optional inclusive evaluation end date based on prediction_start_date.",
   )
   parser.add_argument(
     "--zero-shot-run-dir",
