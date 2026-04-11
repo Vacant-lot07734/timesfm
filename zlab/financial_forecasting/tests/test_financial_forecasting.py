@@ -153,7 +153,7 @@ def test_build_task_collection_and_eval_range_filter_wrapper():
   filtered = filter_tasks_by_eval_range(
     prepared,
     eval_start="2025-01-09",
-    eval_end="2025-01-09",
+    eval_end="2025-01-10",
   )
 
   assert len(filtered.tasks) == 2
@@ -161,6 +161,30 @@ def test_build_task_collection_and_eval_range_filter_wrapper():
     task.future_timestamps[0].strftime("%Y-%m-%d")
     for task in filtered.tasks
   } == {"2025-01-09"}
+  assert {
+    task.future_timestamps[-1].strftime("%Y-%m-%d")
+    for task in filtered.tasks
+  } == {"2025-01-10"}
+
+
+def test_filter_tasks_by_eval_range_rejects_horizon_spillover():
+  prepared = build_task_collection(
+    df=_make_frame(),
+    columns=OHLCVAColumns(exchange="exchange"),
+    target="close",
+    horizon=2,
+    context_length=4,
+    mode="backtest",
+    min_context=4,
+  )
+
+  filtered = filter_tasks_by_eval_range(
+    prepared,
+    eval_start="2025-01-09",
+    eval_end="2025-01-09",
+  )
+
+  assert len(filtered.tasks) == 0
 
 
 def test_build_last_window_tasks_skips_short_symbols():
@@ -241,22 +265,23 @@ def test_flatten_forecast_frame_for_close_includes_return_fields():
     np.array([105.0, 106.0], dtype=np.float32) / task.context_values[-1] - 1.0,
   )
   assert list(pd.to_datetime(frame["prediction_start_date"])) == [task.future_timestamps[0]] * 2
-  assert list(pd.to_datetime(frame["prediction_end_date"])) == list(task.future_timestamps)
+  assert list(pd.to_datetime(frame["prediction_end_date"])) == [task.future_timestamps[-1]] * 2
   assert "true_close" in frame.columns
   assert "true_return" in frame.columns
 
 
-def test_add_experiment_splits_assigns_protocol_labels():
+def test_add_experiment_splits_requires_full_horizon_within_split():
   frame = pd.DataFrame(
     {
-      "prediction_start_date": pd.to_datetime(["2025-11-28", "2025-12-15", "2026-01-10", "2026-03-01"]),
+      "prediction_start_date": pd.to_datetime(["2024-06-24", "2024-06-27", "2024-07-15", "2025-12-29"]),
+      "prediction_end_date": pd.to_datetime(["2024-06-28", "2024-07-03", "2024-07-19", "2026-01-05"]),
       "value": [1, 2, 3, 4],
     }
   )
 
   tagged = add_experiment_splits(frame)
 
-  assert list(tagged["split"]) == ["train", "val", "test", "out_of_range"]
+  assert list(tagged["split"]) == ["train", "out_of_range", "val", "out_of_range"]
 
 
 def test_apply_experiment_split_mode_supports_all():
@@ -452,12 +477,12 @@ def test_shared_wrappers_build_metrics_and_layout(tmp_path):
     split_mode="all",
     eval_start="2025-01-01",
     eval_end="2025-01-31",
-    train_start="2025-06-01",
-    train_end="2025-11-30",
-    val_start="2025-12-01",
-    val_end="2025-12-31",
-    test_start="2026-01-01",
-    test_end="2026-02-28",
+    train_start="2021-01-01",
+    train_end="2024-06-30",
+    val_start="2024-07-01",
+    val_end="2024-12-31",
+    test_start="2025-01-01",
+    test_end="2025-12-31",
     splits=("all",),
   )
 

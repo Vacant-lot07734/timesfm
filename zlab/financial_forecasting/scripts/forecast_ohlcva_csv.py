@@ -219,33 +219,33 @@ def parse_args() -> argparse.Namespace:
   )
   parser.add_argument(
     "--train-start",
-    default="2025-06-01",
-    help="Inclusive train split start date based on prediction_start_date.",
+    default="2021-01-01",
+    help="Inclusive train split start date; prediction_start_date must be on or after it and prediction_end_date must stay within train.",
   )
   parser.add_argument(
     "--train-end",
-    default="2025-11-30",
-    help="Inclusive train split end date based on prediction_start_date.",
+    default="2024-06-30",
+    help="Inclusive train split end date; the full prediction horizon must end on or before it.",
   )
   parser.add_argument(
     "--val-start",
-    default="2025-12-01",
-    help="Inclusive validation split start date based on prediction_start_date.",
+    default="2024-07-01",
+    help="Inclusive validation split start date under the strict full-horizon rule.",
   )
   parser.add_argument(
     "--val-end",
-    default="2025-12-31",
-    help="Inclusive validation split end date based on prediction_start_date.",
+    default="2024-12-31",
+    help="Inclusive validation split end date; the full prediction horizon must remain inside validation.",
   )
   parser.add_argument(
     "--test-start",
-    default="2026-01-01",
-    help="Inclusive test split start date based on prediction_start_date.",
+    default="2025-01-01",
+    help="Inclusive test split start date under the strict full-horizon rule.",
   )
   parser.add_argument(
     "--test-end",
-    default="2026-02-28",
-    help="Inclusive test split end date based on prediction_start_date.",
+    default="2025-12-31",
+    help="Inclusive test split end date; the full prediction horizon must remain inside test.",
   )
   parser.add_argument(
     "--split-mode",
@@ -259,12 +259,12 @@ def parse_args() -> argparse.Namespace:
   parser.add_argument(
     "--eval-start",
     default=None,
-    help="Optional inclusive evaluation start date based on prediction_start_date.",
+    help="Optional inclusive evaluation start date; prediction_start_date must be on or after it and prediction_end_date must stay inside eval_end.",
   )
   parser.add_argument(
     "--eval-end",
     default=None,
-    help="Optional inclusive evaluation end date based on prediction_start_date.",
+    help="Optional inclusive evaluation end date for strict full-horizon filtering.",
   )
   parser.add_argument(
     "--zero-shot-run-dir",

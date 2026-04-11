@@ -563,7 +563,7 @@ def filter_tasks_by_eval_range(
   eval_start: str | pd.Timestamp | None = None,
   eval_end: str | pd.Timestamp | None = None,
 ) -> PreparedTaskCollection:
-  """Filters prepared tasks by inclusive prediction_start_date boundaries."""
+  """Filters tasks whose full prediction horizon lies inside the eval range."""
 
   if eval_start is None and eval_end is None:
     return prepared
@@ -579,7 +579,7 @@ def filter_tasks_by_eval_range(
     )
     and (
       end_ts is None
-      or pd.Timestamp(task.future_timestamps[0]) <= end_ts
+      or pd.Timestamp(task.future_timestamps[-1]) <= end_ts
     )
   ]
   return PreparedTaskCollection(
@@ -689,21 +689,31 @@ def compute_forecast_metrics(
 def add_experiment_splits(
   forecast_frame: pd.DataFrame,
   *,
-  train_start: str = "2025-06-01",
-  train_end: str = "2025-11-30",
-  val_start: str = "2025-12-01",
-  val_end: str = "2025-12-31",
-  test_start: str = "2026-01-01",
-  test_end: str = "2026-02-28",
-  date_column: str = "prediction_start_date",
+  train_start: str = "2021-01-01",
+  train_end: str = "2024-06-30",
+  val_start: str = "2024-07-01",
+  val_end: str = "2024-12-31",
+  test_start: str = "2025-01-01",
+  test_end: str = "2025-12-31",
+  start_date_column: str = "prediction_start_date",
+  end_date_column: str = "prediction_end_date",
 ) -> pd.DataFrame:
-  """Assigns train/val/test split labels using the experiment protocol."""
+  """Assigns split labels only when the full prediction horizon stays inside."""
 
-  if date_column not in forecast_frame.columns:
-    raise ValueError(f"Missing date column for split assignment: {date_column!r}")
+  missing_columns = [
+    column
+    for column in (start_date_column, end_date_column)
+    if column not in forecast_frame.columns
+  ]
+  if missing_columns:
+    raise ValueError(
+      "Missing date columns for strict split assignment: "
+      f"{missing_columns}"
+    )
 
   frame = forecast_frame.copy()
-  frame[date_column] = pd.to_datetime(frame[date_column], errors="raise")
+  frame[start_date_column] = pd.to_datetime(frame[start_date_column], errors="raise")
+  frame[end_date_column] = pd.to_datetime(frame[end_date_column], errors="raise")
   frame["split"] = "out_of_range"
 
   for split_name, start, end in (
@@ -711,7 +721,12 @@ def add_experiment_splits(
     ("val", val_start, val_end),
     ("test", test_start, test_end),
   ):
-    mask = frame[date_column].between(pd.Timestamp(start), pd.Timestamp(end))
+    start_ts = pd.Timestamp(start)
+    end_ts = pd.Timestamp(end)
+    mask = (
+      (frame[start_date_column] >= start_ts)
+      & (frame[end_date_column] <= end_ts)
+    )
     frame.loc[mask, "split"] = split_name
 
   return frame
@@ -844,12 +859,12 @@ def apply_experiment_split_mode(
   forecast_frame: pd.DataFrame,
   *,
   split_mode: Literal["protocol", "all"] = "protocol",
-  train_start: str = "2025-06-01",
-  train_end: str = "2025-11-30",
-  val_start: str = "2025-12-01",
-  val_end: str = "2025-12-31",
-  test_start: str = "2026-01-01",
-  test_end: str = "2026-02-28",
+  train_start: str = "2021-01-01",
+  train_end: str = "2024-06-30",
+  val_start: str = "2024-07-01",
+  val_end: str = "2024-12-31",
+  test_start: str = "2025-01-01",
+  test_end: str = "2025-12-31",
 ) -> pd.DataFrame:
   """Applies either protocol splits or a single all-split tag."""
 
@@ -896,12 +911,12 @@ def build_backtest_metrics_payload(
   metrics_payload = {
     "experiment_protocol": {
       "split_mode": split_mode,
-      "split_anchor": "prediction_start_date",
+      "split_assignment_rule": "strict_full_horizon_within_split",
       "non_trading_boundary_policy": (
         "use the first trading day on or after the configured range start as "
-        "prediction_start_date"
+        "prediction_start_date, and require prediction_end_date to stay inside "
+        "the configured range end"
       ),
-      "allow_prediction_end_spillover": True,
       "eval_start": eval_start,
       "eval_end": eval_end,
       "train_start": train_start,
@@ -940,6 +955,7 @@ def flatten_forecast_frame(
     actual_values = task.future_values
     anchor_value = float(task.context_values[-1])
     prediction_start_date = pd.Timestamp(task.future_timestamps[0])
+    prediction_end_date = pd.Timestamp(task.future_timestamps[-1])
     for step, (forecast_time, point_value) in enumerate(
       zip(task.future_timestamps, prediction, strict=True),
       start=1,
@@ -954,7 +970,7 @@ def flatten_forecast_frame(
         "context_end_date": task.cutoff_time,
         "prediction_start_date": prediction_start_date,
         "forecast_time": forecast_time,
-        "prediction_end_date": forecast_time,
+        "prediction_end_date": prediction_end_date,
         "step": step,
         "horizon": step,
         "context_length": len(task.context_values),
